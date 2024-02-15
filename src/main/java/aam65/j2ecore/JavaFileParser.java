@@ -58,7 +58,7 @@ public class JavaFileParser {
                 String interfaceName = modelManager.getTypeName(typeTypeContext);
                 EClass interfaceClass = modelManager.getEClassByName(interfaceName);
                 if (interfaceClass != null) {
-                    eClass.getEAllSuperTypes().add(interfaceClass);
+                    eClass.getESuperTypes().add(interfaceClass);
                 }
             }));
         }
@@ -78,6 +78,17 @@ public class JavaFileParser {
     private void processInterface(JavaParser.InterfaceDeclarationContext interfaceDecl) {
         String interfaceName = interfaceDecl.identifier().getText();
         EClass eInterface = modelManager.addInterface(interfaceName);
+
+        // Handle extended interfaces
+        if (interfaceDecl.EXTENDS() != null) {
+            interfaceDecl.typeList().forEach(typeListContext -> typeListContext.typeType().forEach(typeTypeContext -> {
+                String extendedInterfaceName = modelManager.getTypeName(typeTypeContext);
+                EClass extendedInterface = modelManager.getEClassByName(extendedInterfaceName);
+                if (extendedInterface != null) {
+                    eInterface.getESuperTypes().add(extendedInterface);
+                }
+            }));
+        }
     }
 
 
@@ -136,10 +147,20 @@ public class JavaFileParser {
 
         // Handle the return type
         JavaParser.TypeTypeOrVoidContext returnTypeCtx = methodCtx.typeTypeOrVoid();
-        if (returnTypeCtx != null && returnTypeCtx.typeType() != null) {
-            String returnType = modelManager.getTypeName(returnTypeCtx.typeType());
-            EClassifier eReturnType = modelManager.getEClassifierByName(returnType);
-            eOperation.setEType(eReturnType);
+        if (returnTypeCtx != null) {
+            if (returnTypeCtx.VOID() != null) {
+                eOperation.setEType(null);
+            } else if (returnTypeCtx.typeType() != null) {
+                String returnType = modelManager.getTypeName(returnTypeCtx.typeType());
+                Object resolvedReturnType = modelManager.resolveReturnType(returnType);
+
+                // Check the instance of the resolved return type and set it appropriately
+                if (resolvedReturnType instanceof EGenericType) {
+                    eOperation.setEGenericType((EGenericType) resolvedReturnType);
+                } else if (resolvedReturnType instanceof EClassifier) {
+                    eOperation.setEType((EClassifier) resolvedReturnType);
+                }
+            }
         }
     }
 }

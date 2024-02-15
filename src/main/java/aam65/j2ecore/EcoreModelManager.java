@@ -177,6 +177,98 @@ public class EcoreModelManager {
         };
     }
 
+    public boolean isGenericType(String typeName) {
+        return typeName.contains("<") && typeName.contains(">");
+    }
+
+    public EGenericType createEGenericType(String typeName) {
+        EGenericType eGenericType = ecoreFactory.createEGenericType();
+
+        // Handle non-generic types directly
+        if (!isGenericType(typeName)) {
+            EClassifier baseType = getEClassifierByName(typeName);
+            if (baseType == null) {
+                throw new IllegalArgumentException("Unknown type: " + typeName);
+            }
+            eGenericType.setEClassifier(baseType);
+            return eGenericType;
+        }
+
+        // Process generic types
+        int beginIndex = typeName.indexOf('<');
+        int endIndex = typeName.lastIndexOf('>');
+        if (beginIndex == -1 || endIndex == -1) {
+            throw new IllegalArgumentException("Invalid generic type name: " + typeName);
+        }
+
+        String baseTypeName = typeName.substring(0, beginIndex);
+        EClassifier baseType = getEClassifierByName(baseTypeName);
+        if (baseType == null) {
+            throw new IllegalArgumentException("Unknown base type: " + baseTypeName);
+        }
+        eGenericType.setEClassifier(baseType);
+
+        String typeArgumentString = typeName.substring(beginIndex + 1, endIndex);
+        if (!typeArgumentString.isEmpty()) {
+            // Split multiple type arguments separated by comma
+            String[] typeArguments = typeArgumentString.split("\\s*,\\s*");
+            for (String argument : typeArguments) {
+                if (argument.startsWith("?")) {
+                    // Handle wildcard type arguments
+                    EGenericType typeArgument = handleWildcardTypeArgument(argument.trim());
+                    eGenericType.getETypeArguments().add(typeArgument);
+                } else {
+                    // Handle specific type arguments
+                    EGenericType specificTypeArgument = createEGenericType(argument.trim());
+                    eGenericType.getETypeArguments().add(specificTypeArgument);
+                }
+            }
+        }
+
+        return eGenericType;
+    }
+
+    private EGenericType handleWildcardTypeArgument(String argument) {
+        EGenericType wildcardGenericType = ecoreFactory.createEGenericType();
+
+        if (argument.equals("?")) {
+            return wildcardGenericType;
+        }
+
+        if (argument.startsWith("? extends ")) {
+            String boundType = argument.substring("? extends ".length());
+            EGenericType bound = createEGenericType(boundType);
+            wildcardGenericType.setEUpperBound(bound);
+        } else if (argument.startsWith("? super ")) {
+            String boundType = argument.substring("? super ".length());
+            EGenericType bound = createEGenericType(boundType);
+            wildcardGenericType.setELowerBound(bound);
+        } else {
+            throw new IllegalArgumentException("Invalid wildcard type argument: " + argument);
+        }
+
+        return wildcardGenericType;
+    }
+
+
+    public EClassifier createArrayType(String arrayTypeName) {
+        String componentTypeName = arrayTypeName.substring(0, arrayTypeName.length() - 2);
+        EClassifier componentType = getEClassifierByName(componentTypeName);
+
+        EClass listWrapper = ecoreFactory.createEClass();
+        listWrapper.setName(componentTypeName + "Array");
+
+        EReference eReference = ecoreFactory.createEReference();
+        eReference.setName("values");
+        eReference.setEType(componentType);
+        eReference.setUpperBound(ETypedElement.UNBOUNDED_MULTIPLICITY);
+        eReference.setContainment(true);
+
+        listWrapper.getEStructuralFeatures().add(eReference);
+
+        return listWrapper;
+    }
+
     private EClassifier getComplexTypeClassifier(String typeName) {
         // Check for user-defined types first
         EClass userDefinedClass = getEClassByName(typeName);
@@ -287,7 +379,7 @@ public class EcoreModelManager {
         // Iterate over all features to check for conflicts and annotate
         for (EStructuralFeature feature : eClass.getEStructuralFeatures()) {
             String featureName = feature.getName();
-            String capitalizedFeatureName = capitalize(featureName);
+            String capitalizedFeatureName = capitalise(featureName);
 
             // Construct the annotation detail
             String annotationDetail = "Originally '" + operationName + "' in Java source.";
@@ -328,10 +420,20 @@ public class EcoreModelManager {
         feature.getEAnnotations().add(annotation);
     }
 
-    private String capitalize(String name) {
+    private String capitalise(String name) {
         if (name == null || name.isEmpty()) {
             return name;
         }
         return name.substring(0, 1).toUpperCase() + name.substring(1);
+    }
+
+    public Object resolveReturnType(String returnType) {
+        if (isGenericType(returnType)) {
+            return createEGenericType(returnType);
+        } else if (returnType.endsWith("[]")) {
+            return createArrayType(returnType);
+        } else {
+            return getEClassifierByName(returnType);
+        }
     }
 }

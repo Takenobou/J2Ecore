@@ -183,7 +183,7 @@ public class EcoreModelManager {
     }
 
     public EGenericType createEGenericType(String typeName) {
-        if (!isGenericType(typeName)) {
+        /*if (!isGenericType(typeName)) {
             EClassifier baseType = getEClassifierByName(typeName);
             if (baseType == null) {
                 throw new IllegalArgumentException("Unknown type: " + typeName);
@@ -223,6 +223,10 @@ public class EcoreModelManager {
             }
         }
 
+        return eGenericType;*/
+        // Just return null or a default non-generic EGenericType to signify that the type is ignored
+        EGenericType eGenericType = ecoreFactory.createEGenericType();
+        eGenericType.setEClassifier(EcorePackage.Literals.EOBJECT); // Default to EObject for simplicity
         return eGenericType;
     }
 
@@ -254,7 +258,7 @@ public class EcoreModelManager {
         }
     }
     private EClassifier handleGenericTypes(String baseTypeName, String typeArguments) {
-        EClass baseType = getEClassByName(baseTypeName);
+        /*EClass baseType = getEClassByName(baseTypeName);
         if (baseType == null) {
             // If the base type is not found within the known EClasses, create a new EClass for it
             baseType = ecoreFactory.createEClass();
@@ -294,7 +298,9 @@ public class EcoreModelManager {
         genericTypeContainer.setName(baseTypeName + "Container");
         genericTypeContainer.getEGenericSuperTypes().add(eGenericType);
 
-        return genericTypeContainer;
+        return genericTypeContainer;*/
+        System.out.println("Skipping generic type");
+        return null;
     }
 
     public EClassifier createArrayType(String arrayTypeName) {
@@ -347,7 +353,7 @@ public class EcoreModelManager {
         }
 
         // Handle generic types or types with type arguments
-        if (typeName.contains("<") && typeName.contains(">")) {
+        /*if (typeName.contains("<") && typeName.contains(">")) {
             String baseTypeName = typeName.substring(0, typeName.indexOf('<'));
             String typeArguments = typeName.substring(typeName.indexOf('<') + 1, typeName.lastIndexOf('>'));
 
@@ -375,7 +381,7 @@ public class EcoreModelManager {
             EClass genericTypeWrapper = ecoreFactory.createEClass();
             genericTypeWrapper.getEGenericSuperTypes().add(eGenericType);
             return createCollectionOrMapClassifier(typeName);
-        }
+        }*/
 
         // Handle arrays by creating an EReference with multiplicity to represent a collection.
         else if (typeName.endsWith("[]")) {
@@ -593,13 +599,11 @@ public class EcoreModelManager {
             if (reference.getEType().equals(source)) {
                 // If the reference is also containment, it's likely the opposite of a non-containment reference
                 // This is a simple heuristic and may not always be correct depending on your model's specifics
-                // Further logic may be required to distinguish between different references based on your domain
+                // Further logic required to distinguish between different references based on your domain
                 return reference;
             }
         }
         // If no opposite reference is found, return null
         return null;
     }
-
-
 }

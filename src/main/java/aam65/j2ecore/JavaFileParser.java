@@ -230,7 +230,7 @@ public class JavaFileParser {
         // Determine if this generic type should be containment or not
         boolean isContainment = determineGenericContainment(fieldCtx, genericType);
 
-        // This requires creating a custom method to add a generic type as a reference
+        // This requires creating a method to add a generic type as a reference
         // modelManager.addGenericReference(eClass, fieldName, genericType, isContainment);
     }
 

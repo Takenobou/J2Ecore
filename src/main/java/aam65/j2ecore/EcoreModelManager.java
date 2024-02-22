@@ -182,51 +182,49 @@ public class EcoreModelManager {
     }
 
     public EGenericType createEGenericType(String typeName) {
-        EGenericType eGenericType = ecoreFactory.createEGenericType();
-
-        // Handle non-generic types directly
         if (!isGenericType(typeName)) {
             EClassifier baseType = getEClassifierByName(typeName);
             if (baseType == null) {
                 throw new IllegalArgumentException("Unknown type: " + typeName);
             }
+            EGenericType eGenericType = ecoreFactory.createEGenericType();
             eGenericType.setEClassifier(baseType);
             return eGenericType;
         }
 
-        // Process generic types
+        // Handle nested generics and EObject more gracefully
         int beginIndex = typeName.indexOf('<');
         int endIndex = typeName.lastIndexOf('>');
-        if (beginIndex == -1 || endIndex == -1) {
-            throw new IllegalArgumentException("Invalid generic type name: " + typeName);
+        if (beginIndex == -1 || endIndex == -1 || "EObject".equals(typeName.substring(0, beginIndex))) {
+            // For EObject or malformed generics, return a non-generic EGenericType
+            EClassifier baseType = EcorePackage.Literals.EOBJECT;
+            EGenericType eGenericType = ecoreFactory.createEGenericType();
+            eGenericType.setEClassifier(baseType);
+            return eGenericType;
         }
 
         String baseTypeName = typeName.substring(0, beginIndex);
         EClassifier baseType = getEClassifierByName(baseTypeName);
         if (baseType == null) {
-            throw new IllegalArgumentException("Unknown base type: " + baseTypeName);
+            throw new IllegalArgumentException("Base type not found for generic type name: " + baseTypeName);
         }
+
+        EGenericType eGenericType = ecoreFactory.createEGenericType();
         eGenericType.setEClassifier(baseType);
 
-        String typeArgumentString = typeName.substring(beginIndex + 1, endIndex);
+        // Extract and process type arguments
+        String typeArgumentString = typeName.substring(beginIndex + 1, endIndex).trim();
         if (!typeArgumentString.isEmpty()) {
-            // Split multiple type arguments separated by comma
             String[] typeArguments = typeArgumentString.split("\\s*,\\s*");
             for (String argument : typeArguments) {
-                if (argument.startsWith("?")) {
-                    // Handle wildcard type arguments
-                    EGenericType typeArgument = handleWildcardTypeArgument(argument.trim());
-                    eGenericType.getETypeArguments().add(typeArgument);
-                } else {
-                    // Handle specific type arguments
-                    EGenericType specificTypeArgument = createEGenericType(argument.trim());
-                    eGenericType.getETypeArguments().add(specificTypeArgument);
-                }
+                EGenericType typeArgument = createEGenericType(argument.trim());
+                eGenericType.getETypeArguments().add(typeArgument);
             }
         }
 
         return eGenericType;
     }
+
 
     private EGenericType handleWildcardTypeArgument(String argument) {
         EGenericType wildcardGenericType = ecoreFactory.createEGenericType();
@@ -249,7 +247,6 @@ public class EcoreModelManager {
 
         return wildcardGenericType;
     }
-
 
     public EClassifier createArrayType(String arrayTypeName) {
         String componentTypeName = arrayTypeName.substring(0, arrayTypeName.length() - 2);
@@ -314,10 +311,10 @@ public class EcoreModelManager {
 
             // Create a reference with a multiplicity to represent a collection of the component type.
             EReference eReference = ecoreFactory.createEReference();
-            eReference.setName(componentTypeName + "List"); // Naming convention can be changed as needed
+            eReference.setName(componentTypeName + "List");
             eReference.setEType(componentType);
             eReference.setUpperBound(ETypedElement.UNBOUNDED_MULTIPLICITY); // This represents an array (or list)
-            eReference.setContainment(true); // Assuming the array elements are contained, not just referenced
+            eReference.setContainment(true);
 
             // Create a dummy EClass to contain the EReference
             EClass listWrapper = ecoreFactory.createEClass();
@@ -370,7 +367,6 @@ public class EcoreModelManager {
         // Fallback for unknown types
         return EcorePackage.Literals.EOBJECT;
     }
-
 
     public String adjustOperationName(String operationName, EClass eClass) {
         // Prefix to indicate that the operation name has been adjusted for Ecore
@@ -428,6 +424,9 @@ public class EcoreModelManager {
     }
 
     public Object resolveReturnType(String returnType) {
+        if ("EObject".equals(returnType) || !isGenericType(returnType)) {
+            return EcorePackage.Literals.EOBJECT;
+        }
         if (isGenericType(returnType)) {
             return createEGenericType(returnType);
         } else if (returnType.endsWith("[]")) {

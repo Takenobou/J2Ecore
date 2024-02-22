@@ -91,7 +91,6 @@ public class JavaFileParser {
         }
     }
 
-
     private void processEnum(JavaParser.EnumDeclarationContext enumDecl) {
         String enumName = enumDecl.identifier().getText();
         EEnum eEnum = modelManager.addEnum(enumName);

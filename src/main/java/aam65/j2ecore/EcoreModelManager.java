@@ -4,6 +4,7 @@ import org.eclipse.emf.ecore.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class EcoreModelManager {
     private final EPackage ePackage;
@@ -248,6 +249,77 @@ public class EcoreModelManager {
         return wildcardGenericType;
     }
 
+    private EClassifier createCollectionOrMapClassifier(String typeName) {
+        String baseTypeName = typeName.substring(0, typeName.indexOf('<'));
+        String typeArguments = typeName.substring(typeName.indexOf('<') + 1, typeName.lastIndexOf('>'));
+
+        // For collections, create an EReference with multiplicity instead of an EClass with EGenericType
+        if (baseTypeName.equals("List") || baseTypeName.equals("Set") || baseTypeName.equals("ArrayList")) {
+            String containedTypeName = typeArguments.trim();
+            EClassifier containedType = getEClassifierByName(containedTypeName);
+
+            // Create a dummy EClass to act as the container
+            EClass listContainer = ecoreFactory.createEClass();
+            listContainer.setName(containedTypeName + "ListContainer");
+
+            // Create an EReference to represent the collection
+            EReference listReference = ecoreFactory.createEReference();
+            listReference.setName(containedTypeName.toLowerCase() + "s"); // Naming convention
+            listReference.setEType(containedType);
+            listReference.setUpperBound(ETypedElement.UNBOUNDED_MULTIPLICITY); // Represents multiple values
+            listReference.setContainment(true);
+
+            listContainer.getEStructuralFeatures().add(listReference);
+            return listContainer;
+        } else {
+            // For non-collection generic types, return an EGenericType or handle other cases.
+            return handleGenericTypes(baseTypeName, typeArguments);
+        }
+    }
+    private EClassifier handleGenericTypes(String baseTypeName, String typeArguments) {
+        EClass baseType = getEClassByName(baseTypeName);
+        if (baseType == null) {
+            // If the base type is not found within the known EClasses, create a new EClass for it
+            baseType = ecoreFactory.createEClass();
+            baseType.setName(baseTypeName);
+            ePackage.getEClassifiers().add(baseType);
+        }
+
+        EGenericType eGenericType = ecoreFactory.createEGenericType();
+        eGenericType.setEClassifier(baseType);
+
+        // Split the type arguments and recursively resolve each
+        String[] arguments = typeArguments.split(",");
+        for (String argument : arguments) {
+            argument = argument.trim();
+            if (isGenericType(argument)) {
+                EGenericType nestedGenericType = createEGenericType(argument);
+                eGenericType.getETypeArguments().add(nestedGenericType);
+            } else {
+                EClassifier argumentClassifier = getEClassifierByName(argument);
+                if (argumentClassifier != null) {
+                    EGenericType typeArgument = ecoreFactory.createEGenericType();
+                    typeArgument.setEClassifier(argumentClassifier);
+                    eGenericType.getETypeArguments().add(typeArgument);
+                } else {
+                    // If the argument type is not known, create a placeholder EClass for it
+                    EClass argumentClass = ecoreFactory.createEClass();
+                    argumentClass.setName(argument);
+                    ePackage.getEClassifiers().add(argumentClass);
+                    EGenericType typeArgument = ecoreFactory.createEGenericType();
+                    typeArgument.setEClassifier(argumentClass);
+                    eGenericType.getETypeArguments().add(typeArgument);
+                }
+            }
+        }
+
+        EClass genericTypeContainer = ecoreFactory.createEClass();
+        genericTypeContainer.setName(baseTypeName + "Container");
+        genericTypeContainer.getEGenericSuperTypes().add(eGenericType);
+
+        return genericTypeContainer;
+    }
+
     public EClassifier createArrayType(String arrayTypeName) {
         String componentTypeName = arrayTypeName.substring(0, arrayTypeName.length() - 2);
         EClassifier componentType = getEClassifierByName(componentTypeName);
@@ -264,6 +336,40 @@ public class EcoreModelManager {
         listWrapper.getEStructuralFeatures().add(eReference);
 
         return listWrapper;
+    }
+
+    public EClass addMapEntryClass(String entryClassName, EClassifier keyType, EClassifier valueType) {
+        EClass mapEntry = ecoreFactory.createEClass();
+        mapEntry.setName(entryClassName);
+        mapEntry.setAbstract(false);
+        mapEntry.setInterface(false);
+
+        EAttribute keyAttribute = ecoreFactory.createEAttribute();
+        keyAttribute.setName("key");
+        keyAttribute.setEType(keyType);
+        mapEntry.getEStructuralFeatures().add(keyAttribute);
+
+        EReference valueReference = ecoreFactory.createEReference();
+        valueReference.setName("value");
+        valueReference.setEType(valueType);
+        valueReference.setUpperBound(ETypedElement.UNBOUNDED_MULTIPLICITY);
+        valueReference.setContainment(true);
+        mapEntry.getEStructuralFeatures().add(valueReference);
+
+        ePackage.getEClassifiers().add(mapEntry);
+        return mapEntry;
+    }
+
+    public void addMapFeature(EClass eClass, String featureName, EClassifier keyType, EClassifier valueType) {
+        String entryClassName = featureName + "Entry";
+        EClass mapEntryEClass = addMapEntryClass(entryClassName, keyType, valueType);
+
+        EReference mapReference = ecoreFactory.createEReference();
+        mapReference.setName(featureName);
+        mapReference.setEType(mapEntryEClass);
+        mapReference.setUpperBound(ETypedElement.UNBOUNDED_MULTIPLICITY);
+        mapReference.setContainment(true);
+        eClass.getEStructuralFeatures().add(mapReference);
     }
 
     private EClassifier getComplexTypeClassifier(String typeName) {
@@ -301,11 +407,11 @@ public class EcoreModelManager {
             // Since EGenericType is not directly an EClassifier, we wrap it in a dummy EClass
             EClass genericTypeWrapper = ecoreFactory.createEClass();
             genericTypeWrapper.getEGenericSuperTypes().add(eGenericType);
-            return genericTypeWrapper;
+            return createCollectionOrMapClassifier(typeName);
         }
 
         // Handle arrays by creating an EReference with multiplicity to represent a collection.
-        if (typeName.endsWith("[]")) {
+        else if (typeName.endsWith("[]")) {
             String componentTypeName = typeName.substring(0, typeName.length() - 2);
             EClassifier componentType = getEClassifierByName(componentTypeName);
 
@@ -325,7 +431,7 @@ public class EcoreModelManager {
         }
 
         // Handle maps by creating an EClass that represents a map entry with key and value fields.
-        if (typeName.startsWith("Map<")) {
+        else if (typeName.startsWith("Map<")) {
             // Extract the key and value types from the map type arguments
             String typeArguments = typeName.substring(typeName.indexOf('<') + 1, typeName.lastIndexOf('>'));
             String[] keyValueTypes = typeArguments.split(",");
@@ -363,9 +469,18 @@ public class EcoreModelManager {
 
             return mapWrapper;
         }
-
         // Fallback for unknown types
-        return EcorePackage.Literals.EOBJECT;
+         else {return EcorePackage.Literals.EOBJECT;}
+    }
+
+    public void addCollectionFeature(EClass eClass, String featureName, EClassifier itemType) {
+        EReference collectionReference = ecoreFactory.createEReference();
+        collectionReference.setName(featureName);
+        collectionReference.setEType(itemType);
+        collectionReference.setUpperBound(ETypedElement.UNBOUNDED_MULTIPLICITY); // -1 for multiple instances
+        collectionReference.setLowerBound(0); // 0 for optional
+        collectionReference.setContainment(true);
+        eClass.getEStructuralFeatures().add(collectionReference);
     }
 
     public String adjustOperationName(String operationName, EClass eClass) {
@@ -404,8 +519,6 @@ public class EcoreModelManager {
             }
         }
 
-        // No conflict detected
-        System.out.println("No conflict: " + operationName);
         return operationName;
     }
 
@@ -434,5 +547,16 @@ public class EcoreModelManager {
         } else {
             return getEClassifierByName(returnType);
         }
+    }
+
+    public EAnnotation createEAnnotation(String source, Map<String, String> details) {
+        EAnnotation eAnnotation = ecoreFactory.createEAnnotation();
+        eAnnotation.setSource(source);
+        details.forEach(eAnnotation.getDetails()::put);
+        return eAnnotation;
+    }
+
+    public void addEAnnotationToElement(EModelElement element, EAnnotation annotation) {
+        element.getEAnnotations().add(annotation);
     }
 }

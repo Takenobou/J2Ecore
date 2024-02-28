@@ -6,6 +6,9 @@ import org.eclipse.emf.ecore.*;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class JavaFileParser {
     private final EcoreModelManager modelManager;
@@ -63,6 +66,20 @@ public class JavaFileParser {
             }));
         }
 
+        // Handle Annotations
+        for (JavaParser.ClassBodyDeclarationContext bodyDecl : classDecl.classBody().classBodyDeclaration()) {
+            if (bodyDecl.memberDeclaration() != null) {
+                for (JavaParser.ModifierContext modCtx : bodyDecl.modifier()) {
+                    if (modCtx.classOrInterfaceModifier() != null &&
+                            modCtx.classOrInterfaceModifier().annotation() != null) {
+                        handleAnnotation(modCtx.classOrInterfaceModifier().annotation(), eClass);
+                    }
+                }
+                // Now process the member itself, like fields and methods
+                // ...
+            }
+        }
+
         classDecl.classBody().classBodyDeclaration().forEach(declaration -> {
             if (declaration.memberDeclaration() != null) {
                 JavaParser.MemberDeclarationContext memberCtx = declaration.memberDeclaration();
@@ -106,25 +123,39 @@ public class JavaFileParser {
         String fieldName = fieldCtx.variableDeclarators().variableDeclarator(0).variableDeclaratorId().getText();
         String fieldType = fieldCtx.typeType().getText();
 
-        // Determine if the field is a collection type and extract the generic type if it is
-        boolean isCollection = fieldType.matches("List<.*>|Set<.*>|Map<.*,.*>");
-        String genericType = isCollection ? fieldType.replaceAll(".*<(.*)>.*", "$1") : fieldType;
+        // Determine if the field is a Map type
+        if (fieldType.matches("Map<.*?,.*?>")) {
+            // Extract key and value types from the generic arguments
+            String[] genericTypes = fieldType.substring(fieldType.indexOf('<') + 1, fieldType.lastIndexOf('>')).split(",");
+            String keyTypeName = genericTypes[0].trim();
+            String valueTypeName = genericTypes[1].trim();
 
-        EClassifier fieldTypeClassifier = modelManager.getEClassifierByName(genericType);
+            EClassifier keyType = modelManager.getEClassifierByName(keyTypeName);
+            EClassifier valueType = modelManager.getEClassifierByName(valueTypeName);
 
-        if (fieldTypeClassifier instanceof EClass) {
-            // Associations or Compositions
-            // biderctionality, unique, ordered, opposite
-            int lowerBound = 0; // Assume optional by default
-            int upperBound = isCollection ? -1 : 1; // Multiple for collections, single otherwise
-            boolean isContainment = !isCollection; // Assume containment for non-collection types
+            // Use the key and value types to add the map feature
+            modelManager.addMapFeature(eClass, fieldName, keyType, valueType);
+        } else if (fieldType.matches("List<.*>|Set<.*>")) {
+            // Extract the generic type for collections
+            String genericType = fieldType.replaceAll(".*<(.*)>.*", "$1");
+            EClassifier genericTypeClassifier = modelManager.getEClassifierByName(genericType);
 
-            // Add the reference with correct containment
-            modelManager.addReference(eClass, fieldName, (EClass)fieldTypeClassifier, lowerBound, upperBound, isContainment);
+            // Use the generic type to add the collection feature
+            modelManager.addCollectionFeature(eClass, fieldName, genericTypeClassifier);
         } else {
-            // Attributes (primitive types or data types)
-            EDataType dataType = fieldTypeClassifier instanceof EDataType ? (EDataType) fieldTypeClassifier : EcorePackage.Literals.ESTRING;
-            modelManager.addAttribute(eClass, fieldName, dataType);
+            // Handle non-collection, non-map fields (attributes)
+            EClassifier fieldTypeClassifier = modelManager.getEClassifierByName(fieldType);
+            if (fieldTypeClassifier instanceof EDataType) {
+                modelManager.addAttribute(eClass, fieldName, (EDataType) fieldTypeClassifier);
+            } else if (fieldTypeClassifier instanceof EClass) {
+                // Add a reference for EClass types
+                modelManager.addReference(eClass, fieldName, (EClass) fieldTypeClassifier,
+                        0, 1, true); // Assuming single, contained EClass reference
+            } else {
+                // Fallback for unknown types, treat as EObject
+                EClassifier fallbackType = EcorePackage.Literals.EOBJECT;
+                modelManager.addAttribute(eClass, fieldName, (EDataType) fallbackType);
+            }
         }
     }
 
@@ -162,4 +193,25 @@ public class JavaFileParser {
             }
         }
     }
+
+    private void handleAnnotation(JavaParser.AnnotationContext annotationCtx, EModelElement eModelElement) {
+        String annotationName = annotationCtx.qualifiedName().getText();
+        Map<String, String> elements = new HashMap<>();
+
+        JavaParser.ElementValuePairsContext pairsCtx = annotationCtx.elementValuePairs();
+        if (pairsCtx != null) {
+            System.out.println("Adding EAnnotation");
+            for (JavaParser.ElementValuePairContext pair : pairsCtx.elementValuePair()) {
+                // Use the identifier() method from ElementValuePairContext
+                String key = pair.identifier().getText();
+                // Use the elementValue() method from ElementValuePairContext
+                String value = pair.elementValue().getText();
+                elements.put(key, value);
+            }
+        }
+
+        EAnnotation eAnnotation = modelManager.createEAnnotation(annotationName, elements);
+        modelManager.addEAnnotationToElement(eModelElement, eAnnotation);
+    }
+
 }

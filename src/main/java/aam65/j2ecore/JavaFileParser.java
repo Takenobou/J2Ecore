@@ -14,7 +14,6 @@ import java.util.Map;
 public class JavaFileParser {
     private final EcoreModelManager modelManager;
 
-
     public JavaFileParser(EcoreModelManager modelManager) {
         this.modelManager = modelManager;
     }
@@ -27,7 +26,6 @@ public class JavaFileParser {
 
         ParseTree tree = parser.compilationUnit();
         processTree(tree);
-        System.out.println(tree.toStringTree(parser));
     }
 
     private void processTree(ParseTree tree) {
@@ -77,8 +75,6 @@ public class JavaFileParser {
                         handleAnnotation(modCtx.classOrInterfaceModifier().annotation(), eClass);
                     }
                 }
-                // Now process the member itself, like fields and methods
-                // ...
             }
         }
 
@@ -148,10 +144,16 @@ public class JavaFileParser {
                 String paramName = paramCtx.variableDeclaratorId().getText();
                 String paramType = modelManager.getTypeName(paramCtx.typeType());
                 EClassifier eParamType = modelManager.getEClassifierByName(paramType);
-                modelManager.addParameterToOperation(eOperation, paramName, eParamType);
+                if (eParamType != null) {
+                    modelManager.addParameterToOperation(eOperation, paramName, eParamType);
+                } else {
+                    // Handle the case where eParamType is null, indicating a missing type
+                    System.err.println("Error: Type " + paramType + " not found for parameter " + paramName);
+                }
             }
         }
     }
+
 
     private void processEnum(JavaParser.EnumDeclarationContext enumDecl) {
         String enumName = enumDecl.identifier().getText();
@@ -168,90 +170,17 @@ public class JavaFileParser {
         String fieldName = fieldCtx.variableDeclarators().variableDeclarator(0).variableDeclaratorId().getText();
         String fieldType = fieldCtx.typeType().getText();
 
-        // Check if the field is a generic type that needs special handling
-        if (modelManager.isGenericType(fieldType)) {
-            handleGenericType(fieldCtx, eClass, fieldName, fieldType);
+        EClassifier fieldTypeClassifier = modelManager.getEClassifierByName(fieldType);
+        if (fieldTypeClassifier instanceof EDataType) {
+            modelManager.addAttribute(eClass, fieldName, (EDataType) fieldTypeClassifier);
+        } else if (fieldTypeClassifier instanceof EClass) {
+            // Assuming all references are containment for simplification
+            modelManager.addReferenceInfo(eClass, fieldType, fieldName, true);
         } else {
-            EClassifier fieldTypeClassifier = modelManager.getEClassifierByName(fieldType);
-            if (fieldTypeClassifier instanceof EDataType) {
-                // It's an attribute (primitive types or data types)
-                modelManager.addAttribute(eClass, fieldName, (EDataType) fieldTypeClassifier);
-            } else if (fieldTypeClassifier instanceof EClass) {
-                boolean isContainment = isContainmentRelationship(fieldCtx);
-                modelManager.addReferenceInfo(eClass, fieldType, fieldName, isContainment);
-            } else {
-                // Fallback for unknown types, treat as EObject
-                EClassifier fallbackType = EcorePackage.Literals.EOBJECT;
-                modelManager.addAttribute(eClass, fieldName, (EDataType) fallbackType);
-            }
+            // Fallback for unknown types, treat as EObject
+            EClassifier fallbackType = EcorePackage.Literals.EOBJECT;
+            modelManager.addAttribute(eClass, fieldName, (EDataType) fallbackType);
         }
-    }
-
-    private void handleGenericType(JavaParser.FieldDeclarationContext fieldCtx, EClass eClass, String fieldName, String fieldType) {
-        if (fieldType.matches("Map<.*?,.*?>")) {
-            // Handle maps
-            handleMapType(eClass, fieldName, fieldType, fieldCtx);
-        } else if (fieldType.matches("List<.*>|Set<.*>")) {
-            // Handle lists or sets
-            handleCollectionType(eClass, fieldName, fieldType, fieldCtx);
-        } else {
-            // Handle other generic types
-            handleOtherGenericType(eClass, fieldName, fieldType, fieldCtx);
-        }
-    }
-
-    private void handleMapType(EClass eClass, String fieldName, String fieldType, JavaParser.FieldDeclarationContext fieldCtx) {
-        String[] genericTypes = fieldType.substring(fieldType.indexOf('<') + 1, fieldType.lastIndexOf('>')).split(",");
-        String keyTypeName = genericTypes[0].trim();
-        String valueTypeName = genericTypes[1].trim();
-
-        EClassifier keyType = modelManager.getEClassifierByName(keyTypeName);
-        EClassifier valueType = modelManager.getEClassifierByName(valueTypeName);
-
-        // Determine if the map should be containment or not. This is domain-specific.
-        boolean isContainment = determineMapContainment(fieldCtx, keyType, valueType);
-
-        modelManager.addMapFeature(eClass, fieldName, keyType, valueType, isContainment);
-    }
-
-    private void handleCollectionType(EClass eClass, String fieldName, String fieldType, JavaParser.FieldDeclarationContext fieldCtx) {
-        String genericType = fieldType.replaceAll(".*<(.*)>.*", "$1");
-        EClassifier genericTypeClassifier = modelManager.getEClassifierByName(genericType);
-
-        // Determine if the collection should be containment or not. This is domain-specific.
-        boolean isContainment = determineCollectionContainment(fieldCtx, genericTypeClassifier);
-
-        modelManager.addCollectionFeature(eClass, fieldName, genericTypeClassifier, isContainment);
-    }
-
-    private void handleOtherGenericType(EClass eClass, String fieldName, String fieldType, JavaParser.FieldDeclarationContext fieldCtx) {
-        // Handle any other generic types
-        EGenericType genericType = modelManager.createEGenericType(fieldType);
-        // Determine if this generic type should be containment or not
-        boolean isContainment = determineGenericContainment(fieldCtx, genericType);
-
-        // This requires creating a method to add a generic type as a reference
-        // modelManager.addGenericReference(eClass, fieldName, genericType, isContainment);
-    }
-
-    private boolean determineMapContainment(JavaParser.FieldDeclarationContext fieldCtx, EClassifier keyType, EClassifier valueType) {
-        // Implement domain-specific logic to determine if the map field is containment
-        return true; // Simplified example
-    }
-
-    private boolean determineCollectionContainment(JavaParser.FieldDeclarationContext fieldCtx, EClassifier genericTypeClassifier) {
-        // Implement domain-specific logic to determine if the collection field is containment
-        return true; // Simplified example
-    }
-
-    private boolean determineGenericContainment(JavaParser.FieldDeclarationContext fieldCtx, EGenericType genericType) {
-        // Implement domain-specific logic to determine if the generic type field is containment
-        return true; // Simplified example
-    }
-
-    private boolean isContainmentRelationship(JavaParser.FieldDeclarationContext fieldCtx) {
-        // This can be done by analyzing annotations, comments, or field modifiers
-        return true; // Default to true for simplicity
     }
 
     private void extractMethods(JavaParser.MethodDeclarationContext methodCtx, EClass eClass) {

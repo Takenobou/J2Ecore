@@ -1,7 +1,8 @@
 plugins {
     id 'java'
     id 'antlr'
-    id 'idea'
+    id 'maven-publish'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
 
 repositories {
@@ -17,29 +18,49 @@ dependencies {
     testImplementation('org.junit.jupiter:junit-jupiter')
 }
 
-//generateGrammarSource {
-//    maxHeapSize = "128m"
-//    arguments += ['-package', 'aam65.j2ecore', '-visitor', '-no-listener']
-//    source = file('src/main/antlr')
-//}
-//compileJava.dependsOn generateGrammarSource
-//
-//sourceSets {
-//    generated {
-//        java.srcDir 'generated-src/antlr/main/'
-//    }
-//}
-//compileJava.source sourceSets.generated.java, sourceSets.main.java
-
-//idea {
-//    module {
-//        sourceDirs += file("generated-src/antlr/main/")
-//    }
-//}
-
 test {
     useJUnitPlatform()
     testLogging {
         events "passed", "skipped", "failed"
     }
 }
+
+task sourceJar(type: Jar, dependsOn: classes) {
+    archiveClassifier.set('sources')
+    from sourceSets.main.allSource
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+
+            groupId = 'aam65.j2ecore'
+            artifactId = 'j2ecore'
+            version = '0.1.0'
+
+            artifact sourceJar
+        }
+    }
+    repositories {
+        mavenLocal()
+    }
+}
+
+shadowJar {
+    archiveClassifier.set('')
+    manifest {
+        attributes 'Main-Class': 'aam65.j2ecore.Main'
+    }
+
+    // Exclude signature files that can cause a SecurityException when running the JAR.
+    exclude "META-INF/*.SF"
+    exclude "META-INF/*.DSA"
+    exclude "META-INF/*.RSA"
+
+    // Merge the service provider configurations.
+    mergeServiceFiles()
+
+}
+
+

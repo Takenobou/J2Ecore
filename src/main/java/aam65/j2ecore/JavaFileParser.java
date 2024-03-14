@@ -154,7 +154,6 @@ public class JavaFileParser {
         }
     }
 
-
     private void processEnum(JavaParser.EnumDeclarationContext enumDecl) {
         String enumName = enumDecl.identifier().getText();
         EEnum eEnum = modelManager.addEnum(enumName);
@@ -187,7 +186,6 @@ public class JavaFileParser {
         String methodName = methodCtx.identifier().getText();
         String adjustedMethodName = modelManager.adjustOperationName(methodName, eClass);
         EOperation eOperation = modelManager.addOperation(eClass, adjustedMethodName);
-
 
         JavaParser.FormalParametersContext formalParametersCtx = methodCtx.formalParameters();
         extractFormalParameters(eOperation, formalParametersCtx);
@@ -230,5 +228,4 @@ public class JavaFileParser {
         EAnnotation eAnnotation = modelManager.createEAnnotation(annotationName, elements);
         modelManager.addEAnnotationToElement(eModelElement, eAnnotation);
     }
-
 }

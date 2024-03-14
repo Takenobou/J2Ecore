@@ -29,6 +29,10 @@ public class Main {
                             LOGGER.log(Level.SEVERE, "Error parsing file: " + path, e);
                         }
                     });
+
+            // Process the references after all files have been parsed.
+            modelManager.processReferences();
+
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Error walking through directory: " + directoryPath, e);
         }

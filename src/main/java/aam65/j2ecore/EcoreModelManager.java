@@ -9,6 +9,8 @@ import java.util.Map;
 public class EcoreModelManager {
     private final EPackage ePackage;
     private final EcoreFactory ecoreFactory;
+    private final EcoreUtils ecoreUtils = new EcoreUtils();
+
 
     public EcoreModelManager() {
         ecoreFactory = EcoreFactory.eINSTANCE;
@@ -50,16 +52,6 @@ public class EcoreModelManager {
         eOperation.setName(adjustedOperationName);
         eClass.getEOperations().add(eOperation);
         return eOperation;
-    }
-
-    public void addReference(EClass eClass, String referenceName, EClass referenceType, int lowerBound, int upperBound, boolean isContainment) {
-        EReference eReference = ecoreFactory.createEReference();
-        eReference.setName(referenceName);
-        eReference.setEType(referenceType);
-        eReference.setLowerBound(lowerBound);
-        eReference.setUpperBound(upperBound);
-        eReference.setContainment(isContainment);
-        eClass.getEStructuralFeatures().add(eReference);
     }
 
     public EPackage getEPackage() {
@@ -226,29 +218,6 @@ public class EcoreModelManager {
         return eGenericType;
     }
 
-
-    private EGenericType handleWildcardTypeArgument(String argument) {
-        EGenericType wildcardGenericType = ecoreFactory.createEGenericType();
-
-        if (argument.equals("?")) {
-            return wildcardGenericType;
-        }
-
-        if (argument.startsWith("? extends ")) {
-            String boundType = argument.substring("? extends ".length());
-            EGenericType bound = createEGenericType(boundType);
-            wildcardGenericType.setEUpperBound(bound);
-        } else if (argument.startsWith("? super ")) {
-            String boundType = argument.substring("? super ".length());
-            EGenericType bound = createEGenericType(boundType);
-            wildcardGenericType.setELowerBound(bound);
-        } else {
-            throw new IllegalArgumentException("Invalid wildcard type argument: " + argument);
-        }
-
-        return wildcardGenericType;
-    }
-
     private EClassifier createCollectionOrMapClassifier(String typeName) {
         String baseTypeName = typeName.substring(0, typeName.indexOf('<'));
         String typeArguments = typeName.substring(typeName.indexOf('<') + 1, typeName.lastIndexOf('>'));
@@ -360,17 +329,7 @@ public class EcoreModelManager {
         return mapEntry;
     }
 
-    public void addMapFeature(EClass eClass, String featureName, EClassifier keyType, EClassifier valueType) {
-        String entryClassName = featureName + "Entry";
-        EClass mapEntryEClass = addMapEntryClass(entryClassName, keyType, valueType);
 
-        EReference mapReference = ecoreFactory.createEReference();
-        mapReference.setName(featureName);
-        mapReference.setEType(mapEntryEClass);
-        mapReference.setUpperBound(ETypedElement.UNBOUNDED_MULTIPLICITY);
-        mapReference.setContainment(true);
-        eClass.getEStructuralFeatures().add(mapReference);
-    }
 
     private EClassifier getComplexTypeClassifier(String typeName) {
         // Check for user-defined types first
@@ -473,13 +432,25 @@ public class EcoreModelManager {
          else {return EcorePackage.Literals.EOBJECT;}
     }
 
-    public void addCollectionFeature(EClass eClass, String featureName, EClassifier itemType) {
+    public void addMapFeature(EClass eClass, String featureName, EClassifier keyType, EClassifier valueType, boolean isContainment) {
+        String entryClassName = featureName + "Entry";
+        EClass mapEntryEClass = addMapEntryClass(entryClassName, keyType, valueType);
+
+        EReference mapReference = ecoreFactory.createEReference();
+        mapReference.setName(featureName);
+        mapReference.setEType(mapEntryEClass);
+        mapReference.setUpperBound(ETypedElement.UNBOUNDED_MULTIPLICITY);
+        mapReference.setContainment(isContainment);
+        eClass.getEStructuralFeatures().add(mapReference);
+    }
+
+    public void addCollectionFeature(EClass eClass, String featureName, EClassifier itemType, boolean isContainment) {
         EReference collectionReference = ecoreFactory.createEReference();
         collectionReference.setName(featureName);
         collectionReference.setEType(itemType);
         collectionReference.setUpperBound(ETypedElement.UNBOUNDED_MULTIPLICITY); // -1 for multiple instances
         collectionReference.setLowerBound(0); // 0 for optional
-        collectionReference.setContainment(true);
+        collectionReference.setContainment(isContainment);
         eClass.getEStructuralFeatures().add(collectionReference);
     }
 
@@ -559,4 +530,68 @@ public class EcoreModelManager {
     public void addEAnnotationToElement(EModelElement element, EAnnotation annotation) {
         element.getEAnnotations().add(annotation);
     }
+
+    public void addReferenceInfo(EClass source, String targetClassName, String referenceName, boolean containment) {
+        EClass target = getEClassByName(targetClassName);
+        if (target != null) {
+            ecoreUtils.addReferenceInfo(source, target, referenceName, containment);
+        }
+    }
+
+    public void processReferences() {
+        Map<EClass, List<EcoreUtils.ReferenceInfo>> refs = ecoreUtils.getClassReferences();
+        for (Map.Entry<EClass, List<EcoreUtils.ReferenceInfo>> entry : refs.entrySet()) {
+            EClass sourceClass = entry.getKey();
+            for (EcoreUtils.ReferenceInfo info : entry.getValue()) {
+                try {
+                    addReference(sourceClass, info.target, info.referenceName, info.containment);
+                } catch (IllegalArgumentException e) {
+                    // Log the error or handle it as appropriate
+                    System.err.println("Error adding reference from " + sourceClass.getName() + " to " + info.target.getName() + ": " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    private void addReference(EClass source, EClass target, String referenceName, boolean containment) {
+        EReference eReference = ecoreFactory.createEReference();
+        eReference.setName(referenceName);
+        eReference.setEType(target);
+        eReference.setContainment(containment);
+
+        // Determine the correct multiplicity based on containment and type
+        if (containment) {
+            eReference.setLowerBound(0);
+            eReference.setUpperBound(ETypedElement.UNBOUNDED_MULTIPLICITY);
+        } else {
+            eReference.setLowerBound(0);
+            eReference.setUpperBound(1);
+        }
+
+        // Check for existing opposite reference (bi-directional)
+        EReference opposite = findOppositeReference(target, source);
+        if (opposite != null) {
+            eReference.setEOpposite(opposite);
+            opposite.setEOpposite(eReference);
+        }
+
+        source.getEStructuralFeatures().add(eReference);
+    }
+
+    private EReference findOppositeReference(EClass target, EClass source) {
+        // Iterate through all EReferences of the target EClass
+        for (EReference reference : target.getEReferences()) {
+            // Check if the reference's type is the source EClass
+            if (reference.getEType().equals(source)) {
+                // If the reference is also containment, it's likely the opposite of a non-containment reference
+                // This is a simple heuristic and may not always be correct depending on your model's specifics
+                // Further logic may be required to distinguish between different references based on your domain
+                return reference;
+            }
+        }
+        // If no opposite reference is found, return null
+        return null;
+    }
+
+
 }

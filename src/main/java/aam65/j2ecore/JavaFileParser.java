@@ -6,6 +6,7 @@ import org.eclipse.emf.ecore.*;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -95,17 +96,60 @@ public class JavaFileParser {
 
     private void processInterface(JavaParser.InterfaceDeclarationContext interfaceDecl) {
         String interfaceName = interfaceDecl.identifier().getText();
-        EClass eInterface = modelManager.addInterface(interfaceName);
+        List<String> extendedInterfaceNames = new ArrayList<>();
 
         // Handle extended interfaces
         if (interfaceDecl.EXTENDS() != null) {
             interfaceDecl.typeList().forEach(typeListContext -> typeListContext.typeType().forEach(typeTypeContext -> {
                 String extendedInterfaceName = modelManager.getTypeName(typeTypeContext);
-                EClass extendedInterface = modelManager.getEClassByName(extendedInterfaceName);
-                if (extendedInterface != null) {
-                    eInterface.getESuperTypes().add(extendedInterface);
-                }
+                extendedInterfaceNames.add(extendedInterfaceName);
             }));
+        }
+
+        EClass eInterface = modelManager.addInterface(interfaceName, extendedInterfaceNames);
+
+        // Process interface methods
+        interfaceDecl.interfaceBody().interfaceBodyDeclaration().forEach(declaration -> {
+            if (declaration.interfaceMemberDeclaration() != null && declaration.interfaceMemberDeclaration().interfaceMethodDeclaration() != null) {
+                extractInterfaceMethods(declaration.interfaceMemberDeclaration().interfaceMethodDeclaration(), eInterface);
+            }
+        });
+    }
+
+    private void extractInterfaceMethods(JavaParser.InterfaceMethodDeclarationContext methodCtx, EClass eInterface) {
+        String methodName = methodCtx.interfaceCommonBodyDeclaration().identifier().getText();
+        String adjustedMethodName = modelManager.adjustOperationName(methodName, eInterface);
+        EOperation eOperation = modelManager.addOperation(eInterface, adjustedMethodName);
+
+        // Extracting formal parameters
+        JavaParser.FormalParametersContext formalParametersCtx = methodCtx.interfaceCommonBodyDeclaration().formalParameters();
+        extractFormalParameters(eOperation, formalParametersCtx);
+
+        // Handling the return type
+        JavaParser.TypeTypeOrVoidContext returnTypeCtx = methodCtx.interfaceCommonBodyDeclaration().typeTypeOrVoid();
+        if (returnTypeCtx != null) {
+            if (returnTypeCtx.VOID() != null) {
+                eOperation.setEType(null); // void return type
+            } else if (returnTypeCtx.typeType() != null) {
+                String returnType = modelManager.getTypeName(returnTypeCtx.typeType());
+                Object resolvedReturnType = modelManager.resolveReturnType(returnType);
+                if (resolvedReturnType instanceof EGenericType) {
+                    eOperation.setEGenericType((EGenericType) resolvedReturnType);
+                } else if (resolvedReturnType != null) {
+                    eOperation.setEType((EClassifier) resolvedReturnType);
+                }
+            }
+        }
+    }
+
+    private void extractFormalParameters(EOperation eOperation, JavaParser.FormalParametersContext formalParametersCtx) {
+        if (formalParametersCtx != null && formalParametersCtx.formalParameterList() != null) {
+            for (JavaParser.FormalParameterContext paramCtx : formalParametersCtx.formalParameterList().formalParameter()) {
+                String paramName = paramCtx.variableDeclaratorId().getText();
+                String paramType = modelManager.getTypeName(paramCtx.typeType());
+                EClassifier eParamType = modelManager.getEClassifierByName(paramType);
+                modelManager.addParameterToOperation(eOperation, paramName, eParamType);
+            }
         }
     }
 
@@ -217,14 +261,7 @@ public class JavaFileParser {
 
 
         JavaParser.FormalParametersContext formalParametersCtx = methodCtx.formalParameters();
-        if (formalParametersCtx != null && formalParametersCtx.formalParameterList() != null) {
-            for (JavaParser.FormalParameterContext paramCtx : formalParametersCtx.formalParameterList().formalParameter()) {
-                String paramName = paramCtx.variableDeclaratorId().getText();
-                String paramType = modelManager.getTypeName(paramCtx.typeType());
-                EClassifier eParamType = modelManager.getEClassifierByName(paramType);
-                modelManager.addParameterToOperation(eOperation, paramName, eParamType);
-            }
-        }
+        extractFormalParameters(eOperation, formalParametersCtx);
 
         // Handle the return type
         JavaParser.TypeTypeOrVoidContext returnTypeCtx = methodCtx.typeTypeOrVoid();

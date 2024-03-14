@@ -27,11 +27,19 @@ public class EcoreModelManager {
         return eClass;
     }
 
-    public EClass addInterface(String interfaceName) {
+    public EClass addInterface(String interfaceName, List<String> superInterfaceNames) {
         EClass eInterface = ecoreFactory.createEClass();
         eInterface.setName(interfaceName);
         eInterface.setInterface(true);
         eInterface.setAbstract(true);
+
+        for (String superInterfaceName : superInterfaceNames) {
+            EClass superInterface = getEClassByName(superInterfaceName);
+            if (superInterface != null && superInterface.isInterface()) {
+                eInterface.getESuperTypes().add(superInterface);
+            }
+        }
+
         ePackage.getEClassifiers().add(eInterface);
         return eInterface;
     }

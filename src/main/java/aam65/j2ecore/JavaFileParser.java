@@ -26,6 +26,16 @@ public class JavaFileParser {
 
         ParseTree tree = parser.compilationUnit();
         processTree(tree);
+
+        String packageName = extractPackageName(parser.compilationUnit());
+        modelManager.setPackageName(packageName);
+    }
+
+    private String extractPackageName(JavaParser.CompilationUnitContext context) {
+        if (context.packageDeclaration() != null) {
+            return context.packageDeclaration().qualifiedName().getText();
+        }
+        return "javaPackage";
     }
 
     private void processTree(ParseTree tree) {
@@ -114,8 +124,7 @@ public class JavaFileParser {
 
     private void extractInterfaceMethods(JavaParser.InterfaceMethodDeclarationContext methodCtx, EClass eInterface) {
         String methodName = methodCtx.interfaceCommonBodyDeclaration().identifier().getText();
-        String adjustedMethodName = modelManager.adjustOperationName(methodName, eInterface);
-        EOperation eOperation = modelManager.addOperation(eInterface, adjustedMethodName);
+        EOperation eOperation = modelManager.addOperation(eInterface, methodName);
 
         // Extracting formal parameters
         JavaParser.FormalParametersContext formalParametersCtx = methodCtx.interfaceCommonBodyDeclaration().formalParameters();
@@ -158,12 +167,15 @@ public class JavaFileParser {
         String enumName = enumDecl.identifier().getText();
         EEnum eEnum = modelManager.addEnum(enumName);
 
-        int ordinal = 0;
-        for (JavaParser.EnumConstantContext enumConstant : enumDecl.enumConstants().enumConstant()) {
-            String enumConstantName = enumConstant.identifier().getText();
-            modelManager.addEnumLiteral(eEnum, enumConstantName, ordinal++);
+        if (enumDecl.enumConstants() != null) {
+            int ordinal = 0;
+            for (JavaParser.EnumConstantContext enumConstant : enumDecl.enumConstants().enumConstant()) {
+                String enumConstantName = enumConstant.identifier().getText();
+                modelManager.addEnumLiteral(eEnum, enumConstantName, ordinal++);
+            }
         }
     }
+
 
     private void extractFields(JavaParser.FieldDeclarationContext fieldCtx, EClass eClass) {
         String fieldName = fieldCtx.variableDeclarators().variableDeclarator(0).variableDeclaratorId().getText();
@@ -184,8 +196,7 @@ public class JavaFileParser {
 
     private void extractMethods(JavaParser.MethodDeclarationContext methodCtx, EClass eClass) {
         String methodName = methodCtx.identifier().getText();
-        String adjustedMethodName = modelManager.adjustOperationName(methodName, eClass);
-        EOperation eOperation = modelManager.addOperation(eClass, adjustedMethodName);
+        EOperation eOperation = modelManager.addOperation(eClass, methodName);
 
         JavaParser.FormalParametersContext formalParametersCtx = methodCtx.formalParameters();
         extractFormalParameters(eOperation, formalParametersCtx);

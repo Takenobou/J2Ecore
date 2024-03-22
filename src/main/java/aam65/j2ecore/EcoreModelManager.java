@@ -18,19 +18,18 @@ public class EcoreModelManager {
     public EcoreModelManager() {
         ecoreFactory = EcoreFactory.eINSTANCE;
         ePackage = ecoreFactory.createEPackage();
-        ePackage.setName("javaPackage");
-        ePackage.setNsPrefix("java");
-        ePackage.setNsURI("https://www.example.org/java");
 
         // Initialize the ResourceSet and Resource
         ResourceSetImpl resourceSet = new ResourceSetImpl();
-        // Register the XMI resource factory for the .ecore extension
         resourceSet.getResourceFactoryRegistry().getExtensionToFactoryMap().put("ecore", new XMIResourceFactoryImpl());
-
-        // Create a new resource for this file.
-        // Added to manage the resource
         Resource resource = resourceSet.createResource(URI.createURI("ModelURI.ecore"));
-        resource.getContents().add(ePackage); // Add the package to the resource
+        resource.getContents().add(ePackage);
+    }
+
+    public void setPackageName(String packageName) {
+        ePackage.setName(packageName);
+        ePackage.setNsPrefix(packageName.toLowerCase());
+        ePackage.setNsURI("https://www.example.org/" + packageName);
     }
 
     public EClass addClass(String className) {
@@ -57,7 +56,6 @@ public class EcoreModelManager {
         return eInterface;
     }
 
-
     public void addAttribute(EClass eClass, String attributeName, EDataType dataType) {
         EAttribute eAttribute = ecoreFactory.createEAttribute();
         eAttribute.setName(attributeName);
@@ -66,11 +64,8 @@ public class EcoreModelManager {
     }
 
     public EOperation addOperation(EClass eClass, String operationName) {
-        // Adjust the operation name in an attempt to prevent conflicts with getters and setters with the same sig as
-        // accessors
-        String adjustedOperationName = adjustOperationName(operationName, eClass);
         EOperation eOperation = ecoreFactory.createEOperation();
-        eOperation.setName(adjustedOperationName);
+        eOperation.setName(operationName);
         eClass.getEOperations().add(eOperation);
         return eOperation;
     }
@@ -194,7 +189,6 @@ public class EcoreModelManager {
         return typeName.contains("<") && typeName.contains(">");
     }
 
-
     public EClassifier createArrayType(String arrayTypeName) {
         String componentTypeName = arrayTypeName.substring(0, arrayTypeName.length() - 2);
         EClassifier componentType = getEClassifierByName(componentTypeName);
@@ -211,59 +205,6 @@ public class EcoreModelManager {
         listWrapper.getEStructuralFeatures().add(eReference);
 
         return listWrapper;
-    }
-
-    public String adjustOperationName(String operationName, EClass eClass) {
-        // Prefix to indicate that the operation name has been adjusted for Ecore
-        final String prefix = "ecoreAdjusted_";
-
-        // Iterate over all features to check for conflicts and annotate
-        for (EStructuralFeature feature : eClass.getEStructuralFeatures()) {
-            String featureName = feature.getName();
-            String capitalizedFeatureName = capitalise(featureName);
-
-            // Construct the annotation detail
-            String annotationDetail = "Originally '" + operationName + "' in Java source.";
-
-            // Conflict detection for getter
-            if (operationName.equalsIgnoreCase("get" + capitalizedFeatureName)) {
-                System.out.println("Conflict for getter detected: " + operationName);
-                annotateFeature(feature, annotationDetail);
-                return prefix + operationName;
-            }
-
-            // Conflict detection for setter
-            if (operationName.equalsIgnoreCase("set" + capitalizedFeatureName)) {
-                System.out.println("Conflict for setter detected: " + operationName);
-                annotateFeature(feature, annotationDetail);
-                return prefix + operationName;
-            }
-
-            // Special case for boolean attributes to prevent conflict with 'is' prefix getters
-            if (feature instanceof EAttribute &&
-                    feature.getEType() == EcorePackage.Literals.EBOOLEAN &&
-                    operationName.equalsIgnoreCase("is" + capitalizedFeatureName)) {
-                System.out.println("Conflict for boolean detected: " + operationName);
-                annotateFeature(feature, annotationDetail);
-                return prefix + operationName;
-            }
-        }
-
-        return operationName;
-    }
-
-    private void annotateFeature(EStructuralFeature feature, String annotationDetail) {
-        EAnnotation annotation = EcoreFactory.eINSTANCE.createEAnnotation();
-        annotation.setSource("https://www.eclipse.org/emf/");
-        annotation.getDetails().put("documentation", annotationDetail);
-        feature.getEAnnotations().add(annotation);
-    }
-
-    private String capitalise(String name) {
-        if (name == null || name.isEmpty()) {
-            return name;
-        }
-        return name.substring(0, 1).toUpperCase() + name.substring(1);
     }
 
     public Object resolveReturnType(String returnType) {
@@ -339,9 +280,6 @@ public class EcoreModelManager {
         for (EReference reference : target.getEReferences()) {
             // Check if the reference's type is the source EClass
             if (reference.getEType().equals(source)) {
-                // If the reference is also containment, it's likely the opposite of a non-containment reference
-                // This is a simple heuristic and may not always be correct depending on your model's specifics
-                // Further logic required to distinguish between different references based on your domain
                 return reference;
             }
         }
